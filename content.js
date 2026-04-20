@@ -8,34 +8,37 @@ function applyStylesToLastElement() {
 
     logDivs.forEach(logDiv => {
         
-        var ticketTab = logDiv.closest('.conversation-polaris');
-        if(ticketTab) {
-            var ticketTabId = ticketTab.getAttribute('data-ticket-id');
-        }
+        const ticketTab = logDiv.closest('.conversation-polaris');
+        const ticketTabId = ticketTab?.getAttribute('data-ticket-id');
         const timeElementsRelative = logDiv.querySelectorAll('time[data-test-id="timestamp-relative"]');
        
-        const lastTimeElementRelative = timeElementsRelative[timeElementsRelative.length - 1];
+        const lastTimeElementRelative = timeElementsRelative[timeElementsRelative.length - 1] || null;
 
         const timeElementsAbsolute = logDiv.querySelectorAll('time[data-test-id="timestamp-absolute"]');
         
-        const lastTimeElementAbsolute = timeElementsAbsolute[timeElementsAbsolute.length - 1];
+        const lastTimeElementAbsolute = timeElementsAbsolute[timeElementsAbsolute.length - 1] || null;
 
 
-	if (typeof lastTimeElementAbsolute !== 'undefined') {
-        	const myTimeElement = getNearestTimestamp(lastTimeElementRelative, lastTimeElementAbsolute);
+        const myTimeElement =
+            lastTimeElementRelative && lastTimeElementAbsolute
+                ? getNearestTimestamp(lastTimeElementRelative, lastTimeElementAbsolute)
+                : (lastTimeElementRelative || lastTimeElementAbsolute);
+
+        if (myTimeElement && ticketTabId) {
             checkTimestamp(myTimeElement, ticketTabId);
-
-    	}else{
-		checkTimestamp(lastTimeElementRelative,ticketTabId);
-	}
+        }
     
 
     });
 }
 
 function getNearestTimestamp(time1, time2) {
+    if (!time1) return time2;
+    if (!time2) return time1;
     const datetime1 = time1.getAttribute('datetime');
     const datetime2 = time2.getAttribute('datetime');
+    if (!datetime1) return time2;
+    if (!datetime2) return time1;
     const date1 = new Date(datetime1);
     const date2 = new Date(datetime2);
     const now = new Date();
@@ -49,20 +52,21 @@ function getNearestTimestamp(time1, time2) {
 }
 
 function checkTimestamp(element, id) {
+    if (!element || !id) return;
     const datetime = element.getAttribute('datetime');
+    if (!datetime) return;
     const date = new Date(datetime);
     const now = new Date();
     const diff = now - date;
     const diffMinutes = diff / (1000 * 60);    
-    changeTime(id, diffMinutes)
-    type = checkType(id);
-    changeBackgroundColor(id, type, diffMinutes)
+    const tab = document.querySelector(`[role="tab"][data-entity-id="${id}"]`);
+    changeTime(tab, diffMinutes);
+    const messageType = checkType(id);
+    changeBackgroundColor(tab, id, messageType, diffMinutes);
          
 }
 
-function changeTime(id, time) {
-    const tab = document.querySelector(`[role="tab"][data-entity-id="${id}"]`);
-
+function changeTime(tab, time) {
     if (tab) {
         let checkIfSpan = tab.querySelector('span.minhaClasse') || null
         const divToInputSpan = tab.querySelector(`[data-test-id="header-non-chat-tab-avatar"]`)
@@ -85,18 +89,23 @@ function changeTime(id, time) {
 
 function checkType(id) {
         const conversationDiv = document.querySelector(`div[data-side-conversations-anchor-id="${id}"]`);
-        
-        const section = conversationDiv.querySelector('section');
-        const lastMessage = [...section.querySelectorAll('article [data-test-id="omni-log-item-message"]')].pop();
-        const type = lastMessage?.getAttribute('type');
-        return type;
+        const section = conversationDiv?.querySelector('section');
+        const lastMessage = section
+            ? [...section.querySelectorAll('article [data-test-id="omni-log-item-message"]')].pop()
+            : null;
+        return lastMessage?.getAttribute('type');
     }
 
 
 
 
-function changeBackgroundColor(id, type, diffMinutes) {
-    const tab = document.querySelector(`[role="tab"][data-entity-id="${id}"]`);
+function changeBackgroundColor(tab, id, type, diffMinutes) {
+    if (!tab) return;
+
+    const defaultBackground =
+        document.documentElement?.dataset?.theme === 'dark'
+            ? 'rgba(var(--grey-1100), var(--opacity-max))'
+            : 'rgba(var(--white), var(--opacity-max))';
 
     switch (true) {
         case diffMinutes >= 10:
@@ -124,7 +133,7 @@ function changeBackgroundColor(id, type, diffMinutes) {
           break;
       
         default:
-           tab.style.background = 'white';
+           tab.style.background = defaultBackground;
       }
     
 }
@@ -148,4 +157,3 @@ function playSound() {
 applyStylesToLastElement();
 
 setInterval(applyStylesToLastElement, 1000); // 1000 milissegundos = 1 segundo
-

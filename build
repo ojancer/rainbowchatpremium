@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+if ! command -v zip >/dev/null 2>&1; then
+  echo "Erro: 'zip' não encontrado. Instale o pacote zip e tente novamente." >&2
+  exit 1
+fi
+
+EXT_NAME="rainbowchat-premium"
+VERSION="$(node -p "require('./manifest.json').version" 2>/dev/null || true)"
+if [[ -z "${VERSION}" ]]; then
+  echo "Erro: não foi possível ler a versão do manifest.json (precisa do Node.js)." >&2
+  exit 1
+fi
+
+DIST_DIR="dist"
+XPI_PATH="${DIST_DIR}/${EXT_NAME}-${VERSION}.xpi"
+SOURCE_PATH="${DIST_DIR}/${EXT_NAME}-${VERSION}-source.zip"
+
+mkdir -p "${DIST_DIR}"
+rm -f "${XPI_PATH}" "${SOURCE_PATH}"
+
+# Pacote para upload no Firefox Add-ons (XPI é um ZIP).
+zip -q -r "${XPI_PATH}" \
+  manifest.json \
+  content.js \
+  icon128.png \
+  README.md \
+  codigo-font
+
+# Pacote de código-fonte para validação no painel (reprodutível).
+zip -q -r "${SOURCE_PATH}" \
+  manifest.json \
+  content.js \
+  icon128.png \
+  README.md \
+  codigo-font \
+  build
+
+echo "Gerado:"
+echo " - ${XPI_PATH}"
+echo " - ${SOURCE_PATH}"
+

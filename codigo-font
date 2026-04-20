@@ -1,0 +1,15 @@
+Código-fonte (para validação no Firefox Add-ons / AMO)
+
+Este projeto não possui build/compilação e não usa minificação/obfuscação.
+O código-fonte da extensão é o próprio conteúdo deste diretório:
+
+- manifest.json
+- content.js
+- icon128.png
+
+Build reprodutível:
+- Execute: ./build
+- O script gera:
+  - dist/rainbowchat-premium-<versao>.xpi (arquivo para upload)
+  - dist/rainbowchat-premium-<versao>-source.zip (código-fonte para validação)
+
