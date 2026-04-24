@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RainbowChat - Premium",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Extensão com a finalidade de alterar a cor e mostrar o tempo da última mensagem nas abas de ticket abertas no Zendesk.",
   "permissions": [
     "activeTab"

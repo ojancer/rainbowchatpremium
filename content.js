@@ -87,14 +87,24 @@ function normalizeMessageType(type) {
 
 function getDatetimeFromContainer(container) {
     if (!container) return null;
-    const times = container.querySelectorAll(
-        'time[data-test-id="timestamp-relative"], time[data-test-id="timestamp-absolute"]'
-    );
-    for (let index = times.length - 1; index >= 0; index--) {
-        const candidate = times[index];
-        const datetime = candidate?.getAttribute?.('datetime');
-        if (datetime) return datetime;
+    const relativeTimes = container.querySelectorAll('time[data-test-id="timestamp-relative"]');
+    for (let index = relativeTimes.length - 1; index >= 0; index--) {
+        const normalized = getNormalizedDatetimeFromTimeElement(relativeTimes[index]);
+        if (normalized) return normalized;
     }
+
+    const absoluteTimes = container.querySelectorAll('time[data-test-id="timestamp-absolute"]');
+    for (let index = absoluteTimes.length - 1; index >= 0; index--) {
+        const normalized = getNormalizedDatetimeFromTimeElement(absoluteTimes[index]);
+        if (normalized) return normalized;
+    }
+
+    const times = container.querySelectorAll('time[datetime]');
+    for (let index = times.length - 1; index >= 0; index--) {
+        const normalized = getNormalizedDatetimeFromTimeElement(times[index]);
+        if (normalized) return normalized;
+    }
+
     return null;
 }
 
@@ -107,6 +117,101 @@ function getLastTimestampElement(feedRoot) {
         if (candidate?.getAttribute('datetime')) return candidate;
     }
     return null;
+}
+
+function pad2(value) {
+    return String(value).padStart(2, '0');
+}
+
+function getDisplayedHHMMFromTimeElement(timeEl) {
+    if (!timeEl) return null;
+    const aria = timeEl.getAttribute?.('aria-label')?.trim() || '';
+    if (/^\d{1,2}:\d{2}$/.test(aria)) {
+        const [hours, minutes] = aria.split(':');
+        return `${pad2(hours)}:${minutes}`;
+    }
+
+    const text = timeEl.textContent?.trim() || '';
+    if (/^\d{1,2}:\d{2}$/.test(text)) {
+        const [hours, minutes] = text.split(':');
+        return `${pad2(hours)}:${minutes}`;
+    }
+
+    return null;
+}
+
+function getHHMMFromDatetimeString(datetimeString) {
+    const match = String(datetimeString || '').match(/T(\d{2}):(\d{2})/);
+    if (!match) return null;
+    return `${match[1]}:${match[2]}`;
+}
+
+function getNormalizedDatetimeFromTimeElement(timeEl) {
+    if (!timeEl) return null;
+    const datetime = timeEl.getAttribute?.('datetime')?.trim() || '';
+    if (!datetime) return null;
+
+    const testId = timeEl.getAttribute?.('data-test-id') || '';
+    if (testId !== 'timestamp-absolute') return datetime;
+
+    // Heurística para corrigir "fake Z" (hora local marcada como UTC):
+    // Ex.: datetime="2026-04-24T14:49:39.626Z" exibindo "14:49" em GMT-03.
+    const displayedHHMM = getDisplayedHHMMFromTimeElement(timeEl);
+    const datetimeHHMM = getHHMMFromDatetimeString(datetime);
+    if (!displayedHHMM || !datetimeHHMM) return datetime;
+
+    const parsed = new Date(datetime);
+    if (Number.isNaN(parsed.getTime())) return datetime;
+    const localHHMM = `${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
+
+    // Se o Zendesk está exibindo o HH:MM igual ao HH:MM do datetime, mas esse HH:MM
+    // NÃO bate com o horário local que esse datetime (com Z/offset) representa,
+    // então esse sufixo de timezone provavelmente está incorreto.
+    if (displayedHHMM === datetimeHHMM && displayedHHMM !== localHHMM) {
+        return datetime.replace(/(Z|[+-]\d{2}:?\d{2})$/i, '');
+    }
+
+    return datetime;
+}
+
+function parseZendeskDatetime(datetimeString) {
+    if (!datetimeString || typeof datetimeString !== 'string') return null;
+    let value = datetimeString.trim();
+    if (!value) return null;
+
+    // Normaliza formatos comuns que variam entre renderizações do Zendesk/browser:
+    // - "YYYY-MM-DD HH:mm:ss" -> "YYYY-MM-DDTHH:mm:ss" (evita parse como UTC em alguns browsers)
+    // - timezone sem ":" no final: "-0300"/"+0000" -> "-03:00"/"+00:00"
+    // - sufixo " UTC" -> "Z"
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)) value = value.replace(' ', 'T');
+    value = value.replace(/([+-])(\d{2})(\d{2})$/, '$1$2:$3');
+    value = value.replace(/\s*UTC$/, 'Z');
+
+    const hasExplicitTimezone = /([+-]\d{2}:\d{2}|Z)$/i.test(value);
+
+    // Se não houver timezone explícito, faz parse manual em horário local para evitar
+    // diferenças de interpretação entre browsers (ex.: tratar como UTC e gerar +180 min).
+    if (!hasExplicitTimezone) {
+        const match = value.match(
+            /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/
+        );
+        if (match) {
+            const year = Number(match[1]);
+            const month = Number(match[2]) - 1;
+            const day = Number(match[3]);
+            const hour = Number(match[4]);
+            const minute = Number(match[5]);
+            const second = match[6] ? Number(match[6]) : 0;
+            const millisecond = match[7] ? Number(match[7].padEnd(3, '0')) : 0;
+            const local = new Date(year, month, day, hour, minute, second, millisecond);
+            if (Number.isNaN(local.getTime())) return null;
+            return local;
+        }
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
 }
 
 function getConversationTiming(feedRoot, ticketId) {
@@ -125,7 +230,9 @@ function getConversationTiming(feedRoot, ticketId) {
     if (entries.some(entry => !entry.datetime)) {
         const timeElements = [...feedRoot.querySelectorAll(
             'time[data-test-id="timestamp-relative"], time[data-test-id="timestamp-absolute"]'
-        )].filter(timeEl => timeEl?.getAttribute?.('datetime'));
+        )]
+            .map(timeEl => ({ el: timeEl, datetime: getNormalizedDatetimeFromTimeElement(timeEl) }))
+            .filter(item => !!item.datetime);
 
         let timeIndex = 0;
         let lastDatetimeSeen = null;
@@ -133,9 +240,9 @@ function getConversationTiming(feedRoot, ticketId) {
         for (const entry of entries) {
             while (
                 timeIndex < timeElements.length &&
-                (timeElements[timeIndex].compareDocumentPosition(entry.el) & Node.DOCUMENT_POSITION_FOLLOWING)
+                (timeElements[timeIndex].el.compareDocumentPosition(entry.el) & Node.DOCUMENT_POSITION_FOLLOWING)
             ) {
-                lastDatetimeSeen = timeElements[timeIndex].getAttribute('datetime');
+                lastDatetimeSeen = timeElements[timeIndex].datetime;
                 timeIndex++;
             }
             if (!entry.datetime && lastDatetimeSeen) entry.datetime = lastDatetimeSeen;
@@ -194,11 +301,11 @@ function getConversationTiming(feedRoot, ticketId) {
 
 function checkTimestamp(referenceDatetime, id, tab, messageType) {
     if (!referenceDatetime || !id || !tab) return;
-    const date = new Date(referenceDatetime);
-    if (Number.isNaN(date.getTime())) return;
+    const date = parseZendeskDatetime(referenceDatetime);
+    if (!date) return;
     const now = new Date();
     const diff = now - date;
-    const diffMinutes = diff / (1000 * 60);    
+    const diffMinutes = Math.max(0, diff / (1000 * 60));
     const minuteFloor = Math.floor(diffMinutes);
 
     const state = ticketStates.get(id) ?? {
