@@ -5,7 +5,8 @@ Extensão que altera a cor e mostra o tempo (em minutos) desde a última mensage
 ## Compatibilidade
 
 - Manifest V3
-- Firefox (Add-ons/AMO): este repositório já inclui `browser_specific_settings.gecko.id` no `manifest.json`.
+- Firefox (Add-ons/AMO): este repositório inclui `browser_specific_settings.gecko.id` e `browser_specific_settings.gecko.data_collection_permissions` no `manifest.json` (exigido para novas submissões no AMO desde 2025-11-03).
+- Observação: `data_collection_permissions` pode causar erro de instalação em versões antigas do Firefox; por isso o `strict_min_version` está em `128.0`.
 
 ## Como usar (Firefox)
 
@@ -29,4 +30,3 @@ Execute:
 Saídas:
 - `dist/rainbowchat-premium-<versao>.xpi`
 - `dist/rainbowchat-premium-<versao>-source.zip`
-

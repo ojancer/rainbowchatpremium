@@ -5,11 +5,12 @@ O código-fonte da extensão é o próprio conteúdo deste diretório:
 
 - manifest.json
 - content.js
-- icon128.png
+- icon16-rb.png
+- icon48-rb.png
+- icon128-rb.png
 
 Build reprodutível:
 - Execute: ./build
 - O script gera:
   - dist/rainbowchat-premium-<versao>.xpi (arquivo para upload)
   - dist/rainbowchat-premium-<versao>-source.zip (código-fonte para validação)
-

@@ -27,7 +27,9 @@ rm -f "${XPI_PATH}" "${SOURCE_PATH}"
 zip -q -r "${XPI_PATH}" \
   manifest.json \
   content.js \
-  icon128.png \
+  icon16-rb.png \
+  icon48-rb.png \
+  icon128-rb.png \
   README.md \
   codigo-font
 
@@ -35,7 +37,9 @@ zip -q -r "${XPI_PATH}" \
 zip -q -r "${SOURCE_PATH}" \
   manifest.json \
   content.js \
-  icon128.png \
+  icon16-rb.png \
+  icon48-rb.png \
+  icon128-rb.png \
   README.md \
   codigo-font \
   build
@@ -43,4 +47,3 @@ zip -q -r "${SOURCE_PATH}" \
 echo "Gerado:"
 echo " - ${XPI_PATH}"
 echo " - ${SOURCE_PATH}"
-
