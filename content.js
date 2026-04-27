@@ -1,14 +1,34 @@
 // Mantém estado por ticket para evitar varreduras e alertas repetidos.
 const ticketStates = new Map(); // ticketId -> { lastDatetime, lastMinute, lastType, notifiedBands:Set<string> }
 
-const REFRESH_DEBOUNCE_MS = 250;
-const TIME_REFRESH_MS = 5_000; // 5 segundos.
+const TIME_REFRESH_MS = 4_000; // 4 segundos.
 
 const ALERT_BANDS = {
     YELLOW: 'yellow',
     BLUE: 'blue',
     RED: 'red',
 };
+
+const TICKET_BADGE_CONTAINER_SELECTOR = '[data-rb-ticket-badge="true"]';
+
+// Estilos injetados para evitar manipulação de estilo inline repetitiva
+const styleEl = document.createElement('style');
+styleEl.textContent = `
+    .rb-badge-container {
+        margin-right: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .rb-badge-time {
+        margin: 12px;
+        color: black;
+        font-weight: bold;
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+`;
+document.head.appendChild(styleEl);
 
 // Áudio embutido (sem dependência de rede): usa Web Audio API para gerar um alerta curto.
 let audioContext = null;
@@ -50,6 +70,53 @@ function setupAudioPriming() {
 }
 setupAudioPriming();
 
+function playSound() {
+    try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') {
+            // Sem gesto do usuário, pode não tocar. O priming tenta resolver isso.
+            primeAudio();
+            if (ctx.state === 'suspended') return;
+        }
+
+        const now = ctx.currentTime;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(880, now);
+        osc1.connect(gain);
+
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(660, now + 0.12);
+        osc2.connect(gain);
+
+        gain.connect(ctx.destination);
+
+        osc1.start(now);
+        osc1.stop(now + 0.18);
+        osc2.start(now + 0.12);
+        osc2.stop(now + 0.36);
+
+        // Limpeza
+        osc1.onended = () => {
+            try { osc1.disconnect(); } catch { }
+        };
+        osc2.onended = () => {
+            try { osc2.disconnect(); } catch { }
+            try { gain.disconnect(); } catch { }
+        };
+    } catch {
+        // Ignora falhas de autoplay/políticas do browser.
+    }
+}
+
+// FIM Processamento áudio
 
 function applyStylesToLastElement() {
     const logDivs = document.querySelectorAll('section[role="feed"]');
@@ -81,8 +148,7 @@ function applyStylesToLastElement() {
 }
 
 function normalizeMessageType(type) {
-    if (!type) return 'other';
-    return type;
+    return type || 'other';
 }
 
 function getDatetimeFromContainer(container) {
@@ -337,69 +403,90 @@ function checkTimestamp(referenceDatetime, id, tab, messageType) {
     ticketStates.set(id, state);
 }
 
+function getBadgeContainerBorderRadius(tab) {
+    try {
+        const fromTab = window.getComputedStyle(tab)?.borderTopLeftRadius;
+        if (fromTab && fromTab !== '0px') return fromTab;
+    } catch {}
+    return '8px';
+}
+
+function ensureTicketBadgeContainer(tab) {
+    if (!tab) return null;
+
+    let container = tab.querySelector(TICKET_BADGE_CONTAINER_SELECTOR);
+    if (container) return container;
+
+    container = document.createElement('div');
+    container.setAttribute('data-rb-ticket-badge', 'true');
+    const firstChild = tab.firstElementChild;
+    if (firstChild?.tagName === 'DIV' && typeof firstChild.className === 'string' && firstChild.className) {
+        container.className = firstChild.className;
+    }
+    container.classList.add('rb-badge-container');
+    container.style.borderRadius = getBadgeContainerBorderRadius(tab);
+
+    // Insere como segundo elemento dentro da tag <a> do ticket (não altera o primeiro ícone/SVG existente).
+    const referenceNode = tab.children?.[1] || null;
+    tab.insertBefore(container, referenceNode);
+
+    return container;
+}
+
+function ensureTicketBadgeSpan(container) {
+    if (!container) return null;
+    let spanTempo = container.querySelector('span.rb-badge-time');
+    if (spanTempo) return spanTempo;
+
+    spanTempo = document.createElement('span');
+    spanTempo.className = 'rb-badge-time';
+    container.appendChild(spanTempo);
+    return spanTempo;
+}
+
 function changeTime(tab, time) {
     if (!tab) return;
 
-    // Pega a primeira div dentro da tab (container do ícone)
-    const iconContainer = tab.querySelector('div');
-    if (!iconContainer) return;
+    const badgeContainer = ensureTicketBadgeContainer(tab);
+    if (!badgeContainer) return;
 
-    // Adiciona uma margem à direita para separar do restante das informações
-    iconContainer.style.marginRight = "10px";
-
-    // Remove o SVG caso ele ainda esteja presente
-    const svg = iconContainer.querySelector('svg');
-    if (svg) svg.remove();
-
-    let spanTempo = iconContainer.querySelector('span.minhaClasse');
-    if (!spanTempo) {
-        spanTempo = document.createElement("span");
-        spanTempo.className = "minhaClasse";
-        spanTempo.style.margin = "12px";
-        spanTempo.style.color = "black";
-        spanTempo.style.fontWeight = "bold";
-        // Adicionando um pequeno espaçamento e arredondamento para a cor de fundo ficar como um ícone (badge)
-        spanTempo.style.padding = "2px 6px";
-        spanTempo.style.borderRadius = "4px";
-        iconContainer.appendChild(spanTempo);
-    }
+    const spanTempo = ensureTicketBadgeSpan(badgeContainer);
+    if (!spanTempo) return;
     
     spanTempo.textContent = Math.floor(time);
 }
 
 
 function checkType(id) {
-        const conversationDiv = document.querySelector(`div[data-side-conversations-anchor-id="${id}"]`);
-        const section = conversationDiv?.querySelector('section');
-        const lastMessage = section
-            ? [...section.querySelectorAll('article [data-test-id="omni-log-item-message"]')].pop()
-            : null;
-        return lastMessage?.getAttribute('type');
-    }
+    const conversationDiv = document.querySelector(`div[data-side-conversations-anchor-id="${id}"]`);
+    const messages = conversationDiv?.querySelectorAll('section article [data-test-id="omni-log-item-message"]');
+    return messages?.length ? messages[messages.length - 1].getAttribute('type') : null;
+}
 
 
 
 
 function getAlertBand(type, diffMinutes) {
     if (diffMinutes >= 10) return ALERT_BANDS.RED;
-    if (diffMinutes >= 5 && diffMinutes < 10 && type === "agent") return ALERT_BANDS.BLUE;
-    if (diffMinutes >= 1 && diffMinutes < 10 && type === "end-user") return ALERT_BANDS.YELLOW;
+    if (diffMinutes >= 5 && type === "agent") return ALERT_BANDS.BLUE;
+    if (diffMinutes >= 1 && type === "end-user") return ALERT_BANDS.YELLOW;
     return null;
 }
 
 function changeBackgroundColor(tab, id, type, diffMinutes, state) {
     if (!tab) return;
 
-    // Pega a primeira div dentro da tab (mesmo container usado no changeTime)
-    const iconContainer = tab.querySelector('div');
-    if (!iconContainer) return;
+    const badgeContainer = ensureTicketBadgeContainer(tab);
+    if (!badgeContainer) return;
 
     const band = getAlertBand(type, diffMinutes);
 
-    let alertColor = '';
-    if (band === ALERT_BANDS.RED) alertColor = 'rgba(255, 0, 0, 0.64)';
-    if (band === ALERT_BANDS.BLUE) alertColor = 'rgba(0, 60, 255, 0.67)';
-    if (band === ALERT_BANDS.YELLOW) alertColor = 'rgba(255, 196, 0, 0.78)';
+    const colors = {
+        [ALERT_BANDS.RED]: 'rgba(255, 0, 0, 0.64)',
+        [ALERT_BANDS.BLUE]: 'rgba(0, 60, 255, 0.67)',
+        [ALERT_BANDS.YELLOW]: 'rgba(255, 196, 0, 0.78)'
+    };
+    const alertColor = colors[band] || '';
 
     // Som 1x por "faixa" desde a última mensagem (e permite tocar de novo quando chegar
     // uma nova mensagem e o datetime mudar).
@@ -408,75 +495,11 @@ function changeBackgroundColor(tab, id, type, diffMinutes, state) {
         state.notifiedBands.add(band);
     }
     
-    iconContainer.style.background = alertColor;
-    // Aplica o mesmo border-radius da aba em todos os cantos para manter o padrão visual
-    iconContainer.style.borderRadius = window.getComputedStyle(tab).borderTopLeftRadius;
+    badgeContainer.style.background = alertColor;
+    badgeContainer.style.borderRadius = getBadgeContainerBorderRadius(tab);
 }
-
-
-
-function playSound() {
-    try {
-        const ctx = getAudioContext();
-        if (!ctx) return;
-        if (ctx.state === 'suspended') {
-            // Sem gesto do usuário, pode não tocar. O priming tenta resolver isso.
-            primeAudio();
-            if (ctx.state === 'suspended') return;
-        }
-
-        const now = ctx.currentTime;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
-
-        const osc1 = ctx.createOscillator();
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(880, now);
-        osc1.connect(gain);
-
-        const osc2 = ctx.createOscillator();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(660, now + 0.12);
-        osc2.connect(gain);
-
-        gain.connect(ctx.destination);
-
-        osc1.start(now);
-        osc1.stop(now + 0.18);
-        osc2.start(now + 0.12);
-        osc2.stop(now + 0.36);
-
-        // Limpeza
-        osc1.onended = () => {
-            try { osc1.disconnect(); } catch {}
-        };
-        osc2.onended = () => {
-            try { osc2.disconnect(); } catch {}
-            try { gain.disconnect(); } catch {}
-        };
-    } catch {
-        // Ignora falhas de autoplay/políticas do browser.
-    }
-}
-
-
-
 
 applyStylesToLastElement();
 
-let refreshTimer = null;
-function scheduleRefreshSoon() {
-    if (refreshTimer) return;
-    refreshTimer = setTimeout(() => {
-        refreshTimer = null;
-        applyStylesToLastElement();
-    }, REFRESH_DEBOUNCE_MS);
-}
-
-// Atualiza o tempo com baixa frequência + atualiza rápido quando o DOM muda (nova mensagem/tab).
+// Atualiza somente a cada 5s (fluxo mais simples).
 setInterval(applyStylesToLastElement, TIME_REFRESH_MS);
-
-const observer = new MutationObserver(() => scheduleRefreshSoon());
-observer.observe(document.body, { childList: true, subtree: true });
